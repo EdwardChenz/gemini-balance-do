@@ -1169,7 +1169,7 @@ export class LoadBalancer extends DurableObject {
 			const total = totalArray.length > 0 ? totalArray[0][0] : 0;
 
 			const results = await this.ctx.storage.sql
-				.exec('SELECT api_key, status, key_group, last_checked_at, failed_count FROM api_key_statuses LIMIT ? OFFSET ?', pageSize, offset)
+				.exec('SELECT api_key, status, key_group, last_checked_at, failed_count, cooldown_until FROM api_key_statuses LIMIT ? OFFSET ?', pageSize, offset)
 				.raw<any>();
 			const keys = results
 				? Array.from(results).map((row: any) => ({
@@ -1178,6 +1178,7 @@ export class LoadBalancer extends DurableObject {
 						key_group: row[2],
 						last_checked_at: row[3],
 						failed_count: row[4],
+						cooldown_until: row[5] || 0,
 				  }))
 				: [];
 

@@ -89,6 +89,26 @@ export const Render = ({ isAuthenticated, showWarning }: { isAuthenticated: bool
 					<div class="flex-1 p-8 overflow-y-auto">
 						<div id="page-keys-list">
 							<h2 class="text-3xl font-bold mb-6 text-slate-700">密钥列表</h2>
+							
+							<div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+								<div class="bg-white p-4 rounded-lg shadow-sm border-l-4 border-sky-500">
+									<div class="text-slate-500 text-sm font-medium">密钥总数</div>
+									<div id="stats-total" class="text-2xl font-bold text-slate-700">0</div>
+								</div>
+								<div class="bg-white p-4 rounded-lg shadow-sm border-l-4 border-emerald-500">
+									<div class="text-slate-500 text-sm font-medium">健康 (可用)</div>
+									<div id="stats-healthy" class="text-2xl font-bold text-slate-700">0</div>
+								</div>
+								<div class="bg-white p-4 rounded-lg shadow-sm border-l-4 border-amber-500">
+									<div class="text-slate-500 text-sm font-medium">冷却中</div>
+									<div id="stats-cooldown" class="text-2xl font-bold text-slate-700">0</div>
+								</div>
+								<div class="bg-white p-4 rounded-lg shadow-sm border-l-4 border-rose-500">
+									<div class="text-slate-500 text-sm font-medium">状态异常</div>
+									<div id="stats-abnormal" class="text-2xl font-bold text-slate-700">0</div>
+								</div>
+							</div>
+
 							<div class="bg-white p-6 rounded-lg shadow-sm">
 								<div class="flex justify-between items-center mb-4">
 									<h3 class="text-xl font-semibold text-slate-600">已存储的密钥</h3>
@@ -122,10 +142,11 @@ export const Render = ({ isAuthenticated, showWarning }: { isAuthenticated: bool
 													<input type="checkbox" id="select-all-keys" class="rounded border-slate-300" />
 												</th>
 												<th class="p-3 text-slate-600 font-semibold">API 密钥</th>
-												<th class="p-3 text-slate-600 font-semibold">状态</th>
+												<th class="p-3 text-slate-600 font-semibold">健康状态</th>
+												<th class="p-3 text-slate-600 font-semibold">冷却状态</th>
 												<th class="p-3 text-slate-600 font-semibold">分组</th>
-												<th class="p-3 text-slate-600 font-semibold">最后检查时间</th>
-												<th class="p-3 text-slate-600 font-semibold">失败次数</th>
+												<th class="p-3 text-slate-600 font-semibold">最后检查</th>
+												<th class="p-3 text-slate-600 font-semibold text-center">失败</th>
 											</tr>
 										</thead>
 										<tbody class="divide-y divide-slate-200"></tbody>
@@ -196,6 +217,11 @@ export const Render = ({ isAuthenticated, showWarning }: { isAuthenticated: bool
 										const selectInvalidKeysBtn = document.getElementById('select-invalid-keys-btn');
 										const selectionStatsDiv = document.getElementById('selection-stats');
 
+										const statsTotal = document.getElementById('stats-total');
+										const statsHealthy = document.getElementById('stats-healthy');
+										const statsCooldown = document.getElementById('stats-cooldown');
+										const statsAbnormal = document.getElementById('stats-abnormal');
+
 										const navKeysList = document.getElementById('nav-keys-list');
 										const navAddKeys = document.getElementById('nav-add-keys');
 										const pageKeysList = document.getElementById('page-keys-list');
@@ -241,36 +267,69 @@ export const Render = ({ isAuthenticated, showWarning }: { isAuthenticated: bool
 										};
 
 										const fetchAndRenderKeys = async () => {
-												keysTableBody.innerHTML = '<tr><td colspan="7" class="p-2 text-center">加载中...</td></tr>';
+												keysTableBody.innerHTML = '<tr><td colspan="8" class="p-2 text-center">加载中...</td></tr>';
 												try {
 												  const response = await fetch(\`/api/keys?page=\${currentPage}&pageSize=\${pageSize}\`);
 												  const { keys, total } = await response.json();
 												  
 												  totalPages = Math.ceil(total / pageSize);
 												  keysTableBody.innerHTML = '';
+
+												  let healthy = 0;
+												  let cooling = 0;
+												  let abnormal = 0;
+												  const now = Date.now();
+
 												  if (keys.length === 0) {
-												    keysTableBody.innerHTML = '<tr><td colspan="7" class="p-2 text-center">暂无密钥</td></tr>';
+												    keysTableBody.innerHTML = '<tr><td colspan="8" class="p-2 text-center text-slate-400">暂无密钥</td></tr>';
 												  } else {
 												    keys.forEach(key => {
-												      const statusMap = { normal: '正常', abnormal: '异常' };
+												      const isCooling = key.cooldown_until > now;
+												      if (key.status === 'abnormal') abnormal++;
+												      else if (isCooling) cooling++;
+												      else healthy++;
+
 												      const row = document.createElement('tr');
-												      row.className = 'hover:bg-slate-50 transition-colors';
+												      row.className = 'hover:bg-slate-50 transition-colors border-b border-slate-100';
 												      row.dataset.key = key.api_key;
 												      row.dataset.status = key.status;
+
+												      let cooldownHtml = '';
+												      if (isCooling) {
+												          const minutesLeft = Math.ceil((key.cooldown_until - now) / 60000);
+												          cooldownHtml = \`<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+												              <svg class="mr-1 h-2 w-2 text-amber-400" fill="currentColor" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3" /></svg>
+												              冷却中 (\${minutesLeft}分)
+												          </span>\`;
+												      } else {
+												          cooldownHtml = \`<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800">可用</span>\`;
+												      }
+
+												      const statusBadge = key.status === 'normal' 
+												          ? '<span class="text-emerald-600 font-medium">正常</span>' 
+												          : '<span class="text-rose-600 font-medium">异常</span>';
+
 												      row.innerHTML = \`
-												        <td class="p-3 w-6"><input type="checkbox" class="key-checkbox rounded border-slate-300" data-key="\${key.api_key}" /></td>
-												        <td class="p-3 font-mono text-sm text-slate-700">\${key.api_key}</td>
-												        <td class="p-3 status-cell">\${statusMap[key.status] || key.status}</td>
-												        <td class="p-3">\${statusMap[key.key_group] || key.key_group}</td>
-												        <td class="p-3 text-sm text-slate-500">\${key.last_checked_at ? new Date(key.last_checked_at).toLocaleString() : 'N/A'}</td>
-												        <td class="p-3 text-center">\${key.failed_count}</td>
+												        <td class="p-3 w-6"><input type="checkbox" class="key-checkbox rounded border-slate-300 text-sky-600" data-key="\${key.api_key}" /></td>
+												        <td class="p-3 font-mono text-xs text-slate-500 max-w-[200px] truncate">\${key.api_key}</td>
+												        <td class="p-3 status-cell text-sm">\${statusBadge}</td>
+												        <td class="p-3 text-sm">\${cooldownHtml}</td>
+												        <td class="p-3 text-sm text-slate-600">\${key.key_group === 'normal' ? '常规' : '隔离'}</td>
+												        <td class="p-3 text-xs text-slate-400">\${key.last_checked_at ? new Date(key.last_checked_at).toLocaleString() : '从未使用'}</td>
+												        <td class="p-3 text-center text-sm font-medium \${key.failed_count > 0 ? 'text-rose-500' : 'text-slate-400'}">\${key.failed_count}</td>
 												      \`;
 												      keysTableBody.appendChild(row);
 												    });
 												  }
+
+												  statsTotal.textContent = total;
+												  statsHealthy.textContent = healthy;
+												  statsCooldown.textContent = cooling;
+												  statsAbnormal.textContent = abnormal;
+
 												  updatePaginationControls();
 												} catch (error) {
-												  keysTableBody.innerHTML = '<tr><td colspan="7" class="p-2 text-center text-red-500">加载失败</td></tr>';
+												  keysTableBody.innerHTML = '<tr><td colspan="8" class="p-2 text-center text-rose-500">加载失败: ' + error.message + '</td></tr>';
 												  console.error('Failed to fetch keys:', error);
 												}
 										};

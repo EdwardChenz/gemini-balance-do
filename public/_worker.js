@@ -2706,6 +2706,24 @@ var Render = ({ isAuthenticated, showWarning }) => {
         /* @__PURE__ */ jsxDEV("div", { class: "flex-1 p-8 overflow-y-auto", children: [
           /* @__PURE__ */ jsxDEV("div", { id: "page-keys-list", children: [
             /* @__PURE__ */ jsxDEV("h2", { class: "text-3xl font-bold mb-6 text-slate-700", children: "\u5BC6\u94A5\u5217\u8868" }),
+            /* @__PURE__ */ jsxDEV("div", { class: "grid grid-cols-1 md:grid-cols-4 gap-4 mb-6", children: [
+              /* @__PURE__ */ jsxDEV("div", { class: "bg-white p-4 rounded-lg shadow-sm border-l-4 border-sky-500", children: [
+                /* @__PURE__ */ jsxDEV("div", { class: "text-slate-500 text-sm font-medium", children: "\u5BC6\u94A5\u603B\u6570" }),
+                /* @__PURE__ */ jsxDEV("div", { id: "stats-total", class: "text-2xl font-bold text-slate-700", children: "0" })
+              ] }),
+              /* @__PURE__ */ jsxDEV("div", { class: "bg-white p-4 rounded-lg shadow-sm border-l-4 border-emerald-500", children: [
+                /* @__PURE__ */ jsxDEV("div", { class: "text-slate-500 text-sm font-medium", children: "\u5065\u5EB7 (\u53EF\u7528)" }),
+                /* @__PURE__ */ jsxDEV("div", { id: "stats-healthy", class: "text-2xl font-bold text-slate-700", children: "0" })
+              ] }),
+              /* @__PURE__ */ jsxDEV("div", { class: "bg-white p-4 rounded-lg shadow-sm border-l-4 border-amber-500", children: [
+                /* @__PURE__ */ jsxDEV("div", { class: "text-slate-500 text-sm font-medium", children: "\u51B7\u5374\u4E2D" }),
+                /* @__PURE__ */ jsxDEV("div", { id: "stats-cooldown", class: "text-2xl font-bold text-slate-700", children: "0" })
+              ] }),
+              /* @__PURE__ */ jsxDEV("div", { class: "bg-white p-4 rounded-lg shadow-sm border-l-4 border-rose-500", children: [
+                /* @__PURE__ */ jsxDEV("div", { class: "text-slate-500 text-sm font-medium", children: "\u72B6\u6001\u5F02\u5E38" }),
+                /* @__PURE__ */ jsxDEV("div", { id: "stats-abnormal", class: "text-2xl font-bold text-slate-700", children: "0" })
+              ] })
+            ] }),
             /* @__PURE__ */ jsxDEV("div", { class: "bg-white p-6 rounded-lg shadow-sm", children: [
               /* @__PURE__ */ jsxDEV("div", { class: "flex justify-between items-center mb-4", children: [
                 /* @__PURE__ */ jsxDEV("h3", { class: "text-xl font-semibold text-slate-600", children: "\u5DF2\u5B58\u50A8\u7684\u5BC6\u94A5" }),
@@ -2741,10 +2759,11 @@ var Render = ({ isAuthenticated, showWarning }) => {
                 /* @__PURE__ */ jsxDEV("thead", { class: "bg-slate-50", children: /* @__PURE__ */ jsxDEV("tr", { class: "border-b border-slate-200", children: [
                   /* @__PURE__ */ jsxDEV("th", { class: "p-3 w-6", children: /* @__PURE__ */ jsxDEV("input", { type: "checkbox", id: "select-all-keys", class: "rounded border-slate-300" }) }),
                   /* @__PURE__ */ jsxDEV("th", { class: "p-3 text-slate-600 font-semibold", children: "API \u5BC6\u94A5" }),
-                  /* @__PURE__ */ jsxDEV("th", { class: "p-3 text-slate-600 font-semibold", children: "\u72B6\u6001" }),
+                  /* @__PURE__ */ jsxDEV("th", { class: "p-3 text-slate-600 font-semibold", children: "\u5065\u5EB7\u72B6\u6001" }),
+                  /* @__PURE__ */ jsxDEV("th", { class: "p-3 text-slate-600 font-semibold", children: "\u51B7\u5374\u72B6\u6001" }),
                   /* @__PURE__ */ jsxDEV("th", { class: "p-3 text-slate-600 font-semibold", children: "\u5206\u7EC4" }),
-                  /* @__PURE__ */ jsxDEV("th", { class: "p-3 text-slate-600 font-semibold", children: "\u6700\u540E\u68C0\u67E5\u65F6\u95F4" }),
-                  /* @__PURE__ */ jsxDEV("th", { class: "p-3 text-slate-600 font-semibold", children: "\u5931\u8D25\u6B21\u6570" })
+                  /* @__PURE__ */ jsxDEV("th", { class: "p-3 text-slate-600 font-semibold", children: "\u6700\u540E\u68C0\u67E5" }),
+                  /* @__PURE__ */ jsxDEV("th", { class: "p-3 text-slate-600 font-semibold text-center", children: "\u5931\u8D25" })
                 ] }) }),
                 /* @__PURE__ */ jsxDEV("tbody", { class: "divide-y divide-slate-200" })
               ] }) }),
@@ -2825,6 +2844,11 @@ var Render = ({ isAuthenticated, showWarning }) => {
 										const selectInvalidKeysBtn = document.getElementById('select-invalid-keys-btn');
 										const selectionStatsDiv = document.getElementById('selection-stats');
 
+										const statsTotal = document.getElementById('stats-total');
+										const statsHealthy = document.getElementById('stats-healthy');
+										const statsCooldown = document.getElementById('stats-cooldown');
+										const statsAbnormal = document.getElementById('stats-abnormal');
+
 										const navKeysList = document.getElementById('nav-keys-list');
 										const navAddKeys = document.getElementById('nav-add-keys');
 										const pageKeysList = document.getElementById('page-keys-list');
@@ -2870,36 +2894,69 @@ var Render = ({ isAuthenticated, showWarning }) => {
 										};
 
 										const fetchAndRenderKeys = async () => {
-												keysTableBody.innerHTML = '<tr><td colspan="7" class="p-2 text-center">\u52A0\u8F7D\u4E2D...</td></tr>';
+												keysTableBody.innerHTML = '<tr><td colspan="8" class="p-2 text-center">\u52A0\u8F7D\u4E2D...</td></tr>';
 												try {
 												  const response = await fetch(\`/api/keys?page=\${currentPage}&pageSize=\${pageSize}\`);
 												  const { keys, total } = await response.json();
 												  
 												  totalPages = Math.ceil(total / pageSize);
 												  keysTableBody.innerHTML = '';
+
+												  let healthy = 0;
+												  let cooling = 0;
+												  let abnormal = 0;
+												  const now = Date.now();
+
 												  if (keys.length === 0) {
-												    keysTableBody.innerHTML = '<tr><td colspan="7" class="p-2 text-center">\u6682\u65E0\u5BC6\u94A5</td></tr>';
+												    keysTableBody.innerHTML = '<tr><td colspan="8" class="p-2 text-center text-slate-400">\u6682\u65E0\u5BC6\u94A5</td></tr>';
 												  } else {
 												    keys.forEach(key => {
-												      const statusMap = { normal: '\u6B63\u5E38', abnormal: '\u5F02\u5E38' };
+												      const isCooling = key.cooldown_until > now;
+												      if (key.status === 'abnormal') abnormal++;
+												      else if (isCooling) cooling++;
+												      else healthy++;
+
 												      const row = document.createElement('tr');
-												      row.className = 'hover:bg-slate-50 transition-colors';
+												      row.className = 'hover:bg-slate-50 transition-colors border-b border-slate-100';
 												      row.dataset.key = key.api_key;
 												      row.dataset.status = key.status;
+
+												      let cooldownHtml = '';
+												      if (isCooling) {
+												          const minutesLeft = Math.ceil((key.cooldown_until - now) / 60000);
+												          cooldownHtml = \`<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+												              <svg class="mr-1 h-2 w-2 text-amber-400" fill="currentColor" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3" /></svg>
+												              \u51B7\u5374\u4E2D (\${minutesLeft}\u5206)
+												          </span>\`;
+												      } else {
+												          cooldownHtml = \`<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800">\u53EF\u7528</span>\`;
+												      }
+
+												      const statusBadge = key.status === 'normal' 
+												          ? '<span class="text-emerald-600 font-medium">\u6B63\u5E38</span>' 
+												          : '<span class="text-rose-600 font-medium">\u5F02\u5E38</span>';
+
 												      row.innerHTML = \`
-												        <td class="p-3 w-6"><input type="checkbox" class="key-checkbox rounded border-slate-300" data-key="\${key.api_key}" /></td>
-												        <td class="p-3 font-mono text-sm text-slate-700">\${key.api_key}</td>
-												        <td class="p-3 status-cell">\${statusMap[key.status] || key.status}</td>
-												        <td class="p-3">\${statusMap[key.key_group] || key.key_group}</td>
-												        <td class="p-3 text-sm text-slate-500">\${key.last_checked_at ? new Date(key.last_checked_at).toLocaleString() : 'N/A'}</td>
-												        <td class="p-3 text-center">\${key.failed_count}</td>
+												        <td class="p-3 w-6"><input type="checkbox" class="key-checkbox rounded border-slate-300 text-sky-600" data-key="\${key.api_key}" /></td>
+												        <td class="p-3 font-mono text-xs text-slate-500 max-w-[200px] truncate">\${key.api_key}</td>
+												        <td class="p-3 status-cell text-sm">\${statusBadge}</td>
+												        <td class="p-3 text-sm">\${cooldownHtml}</td>
+												        <td class="p-3 text-sm text-slate-600">\${key.key_group === 'normal' ? '\u5E38\u89C4' : '\u9694\u79BB'}</td>
+												        <td class="p-3 text-xs text-slate-400">\${key.last_checked_at ? new Date(key.last_checked_at).toLocaleString() : '\u4ECE\u672A\u4F7F\u7528'}</td>
+												        <td class="p-3 text-center text-sm font-medium \${key.failed_count > 0 ? 'text-rose-500' : 'text-slate-400'}">\${key.failed_count}</td>
 												      \`;
 												      keysTableBody.appendChild(row);
 												    });
 												  }
+
+												  statsTotal.textContent = total;
+												  statsHealthy.textContent = healthy;
+												  statsCooldown.textContent = cooling;
+												  statsAbnormal.textContent = abnormal;
+
 												  updatePaginationControls();
 												} catch (error) {
-												  keysTableBody.innerHTML = '<tr><td colspan="7" class="p-2 text-center text-red-500">\u52A0\u8F7D\u5931\u8D25</td></tr>';
+												  keysTableBody.innerHTML = '<tr><td colspan="8" class="p-2 text-center text-rose-500">\u52A0\u8F7D\u5931\u8D25: ' + error.message + '</td></tr>';
 												  console.error('Failed to fetch keys:', error);
 												}
 										};
@@ -4100,13 +4157,14 @@ var LoadBalancer = class extends DurableObject {
       const totalResult = await this.ctx.storage.sql.exec("SELECT COUNT(*) as count FROM api_key_statuses").raw();
       const totalArray = Array.from(totalResult);
       const total = totalArray.length > 0 ? totalArray[0][0] : 0;
-      const results = await this.ctx.storage.sql.exec("SELECT api_key, status, key_group, last_checked_at, failed_count FROM api_key_statuses LIMIT ? OFFSET ?", pageSize, offset).raw();
+      const results = await this.ctx.storage.sql.exec("SELECT api_key, status, key_group, last_checked_at, failed_count, cooldown_until FROM api_key_statuses LIMIT ? OFFSET ?", pageSize, offset).raw();
       const keys = results ? Array.from(results).map((row) => ({
         api_key: row[0],
         status: row[1],
         key_group: row[2],
         last_checked_at: row[3],
-        failed_count: row[4]
+        failed_count: row[4],
+        cooldown_until: row[5] || 0
       })) : [];
       return new Response(JSON.stringify({ keys, total }), {
         headers: { "Content-Type": "application/json" }
