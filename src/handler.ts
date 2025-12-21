@@ -31,6 +31,9 @@ const makeHeaders = (apiKey: string, more?: Record<string, string>) => ({
 /** A Durable Object's behavior is defined in an exported Javascript class */
 export class LoadBalancer extends DurableObject {
 	env: Env;
+	private lastSuccessfulKey: string | null = null;
+	private currentKeyUsageCount: number = 0;
+
 	/**
 	 * The constructor is invoked once upon creation of the Durable Object, i.e. the first call to
 	 * 	`DurableObjectStub::get` for a given identifier (no-op constructors can be omitted)
@@ -55,13 +58,31 @@ export class LoadBalancer extends DurableObject {
 				FOREIGN KEY(api_key) REFERENCES api_keys(api_key) ON DELETE CASCADE
 			);
 		`);
+
+		// Migration: Add cooldown_until column if it doesn't exist
+		try {
+			this.ctx.storage.sql.exec("ALTER TABLE api_key_statuses ADD COLUMN cooldown_until INTEGER DEFAULT 0");
+			console.log("Successfully added cooldown_until column to api_key_statuses");
+		} catch (e: any) {
+			if (e.message.includes("duplicate column name")) {
+				// Column already exists, ignore
+			} else {
+				console.error("Migration error:", e.message);
+			}
+		}
+
+		// Ensure all existing data has a value for cooldown_until
+		try {
+			this.ctx.storage.sql.exec("UPDATE api_key_statuses SET cooldown_until = 0 WHERE cooldown_until IS NULL");
+		} catch (e) {}
+
 		this.ctx.storage.setAlarm(Date.now() + 5 * 60 * 1000); // Set an alarm to run in 5 minutes
 	}
 
 	async alarm() {
 		// 1. Handle abnormal keys
 		const abnormalKeys = await this.ctx.storage.sql
-			.exec("SELECT api_key, failed_count FROM api_key_statuses WHERE key_group = 'abnormal'")
+			.exec("SELECT api_key, failed_count FROM api_key_statuses WHERE key_group = 'abnormal' AND cooldown_until <= ?", Date.now())
 			.raw<any>();
 
 		for (const row of Array.from(abnormalKeys)) {
@@ -81,21 +102,23 @@ export class LoadBalancer extends DurableObject {
 				if (response.ok) {
 					// Key is working again, move it back to the normal group
 					await this.ctx.storage.sql.exec(
-						"UPDATE api_key_statuses SET key_group = 'normal', failed_count = 0, last_checked_at = ? WHERE api_key = ?",
+						"UPDATE api_key_statuses SET key_group = 'normal', failed_count = 0, last_checked_at = ?, cooldown_until = 0 WHERE api_key = ?",
 						Date.now(),
 						apiKey
 					);
 				} else if (response.status === 429) {
-					// Still getting 429, increment failed_count
+					// Still getting 429, increment failed_count and extend cooldown
 					const newFailedCount = failedCount + 1;
+					const cooldownUntil = Date.now() + 20 * 60 * 1000;
 					if (newFailedCount >= 5) {
 						// Delete the key if it has failed 5 times
 						await this.ctx.storage.sql.exec('DELETE FROM api_keys WHERE api_key = ?', apiKey);
 					} else {
 						await this.ctx.storage.sql.exec(
-							'UPDATE api_key_statuses SET failed_count = ?, last_checked_at = ? WHERE api_key = ?',
+							'UPDATE api_key_statuses SET failed_count = ?, last_checked_at = ?, cooldown_until = ? WHERE api_key = ?',
 							newFailedCount,
 							Date.now(),
+							cooldownUntil,
 							apiKey
 						);
 					}
@@ -127,15 +150,21 @@ export class LoadBalancer extends DurableObject {
 					}),
 				});
 				if (response.status === 429) {
-					// Move to abnormal group
+					// Move to abnormal group and set cooldown
+					const cooldownUntil = Date.now() + 20 * 60 * 1000;
 					await this.ctx.storage.sql.exec(
-						"UPDATE api_key_statuses SET key_group = 'abnormal', failed_count = 1, last_checked_at = ? WHERE api_key = ?",
+						"UPDATE api_key_statuses SET key_group = 'abnormal', failed_count = 1, last_checked_at = ?, cooldown_until = ? WHERE api_key = ?",
 						Date.now(),
+						cooldownUntil,
 						apiKey
 					);
 				} else {
-					// Update last_checked_at
-					await this.ctx.storage.sql.exec('UPDATE api_key_statuses SET last_checked_at = ? WHERE api_key = ?', Date.now(), apiKey);
+					// Update last_checked_at and reset cooldown
+					await this.ctx.storage.sql.exec(
+						'UPDATE api_key_statuses SET last_checked_at = ?, cooldown_until = 0 WHERE api_key = ?',
+						Date.now(),
+						apiKey
+					);
 				}
 			} catch (e) {
 				console.error(`Error checking normal key ${apiKey}:`, e);
@@ -240,15 +269,27 @@ export class LoadBalancer extends DurableObject {
 		});
 
 		if (response.status === 429) {
-			console.log(`API key ${apiKey} received 429 status code.`);
+			console.log(`API key ${apiKey} received 429 status code. Cooling down for 20 minutes.`);
+			const cooldownUntil = Date.now() + 20 * 60 * 1000;
 			await this.ctx.storage.sql.exec(
-				"UPDATE api_key_statuses SET key_group = 'abnormal', failed_count = failed_count + 1, last_checked_at = ? WHERE api_key = ?",
+				"UPDATE api_key_statuses SET key_group = 'abnormal', failed_count = failed_count + 1, last_checked_at = ?, cooldown_until = ? WHERE api_key = ?",
 				Date.now(),
+				cooldownUntil,
 				apiKey
 			);
+			if (this.lastSuccessfulKey === apiKey) {
+				this.lastSuccessfulKey = null;
+				this.currentKeyUsageCount = 0;
+			}
+		} else if (response.ok) {
+			console.log('Call Gemini Success');
+			if (this.lastSuccessfulKey === apiKey) {
+				this.currentKeyUsageCount++;
+			} else {
+				this.lastSuccessfulKey = apiKey;
+				this.currentKeyUsageCount = 1;
+			}
 		}
-
-		console.log('Call Gemini Success');
 
 		const responseHeaders = new Headers(response.headers);
 		responseHeaders.set('Access-Control-Allow-Origin', '*');
@@ -286,9 +327,11 @@ export class LoadBalancer extends DurableObject {
 
 				return this.forwardRequest(url.toString(), request, headers, clientApiKey || '');
 			}
-			const apiKey = await this.getRandomApiKey();
+			const apiKey = await this.getBestApiKey();
 			if (!apiKey) {
-				return new Response('No API keys configured in the load balancer.', { status: 500 });
+				const totalKeys = await this.ctx.storage.sql.exec("SELECT COUNT(*) FROM api_keys").raw<any>();
+				const count = Array.from(totalKeys)[0][0];
+				return new Response(`No API keys configured in the load balancer. (Total keys in DB: ${count})`, { status: 500 });
 			}
 
 			url.searchParams.set('key', apiKey);
@@ -645,7 +688,13 @@ export class LoadBalancer extends DurableObject {
 					throw new Error(`${response.status} ${response.statusText} (${url})`);
 				}
 				mimeType = response.headers.get('content-type');
-				data = Buffer.from(await response.arrayBuffer()).toString('base64');
+				const arrayBuffer = await response.arrayBuffer();
+				const uint8Array = new Uint8Array(arrayBuffer);
+				let binary = '';
+				for (let i = 0; i < uint8Array.byteLength; i++) {
+					binary += String.fromCharCode(uint8Array[i]);
+				}
+				data = btoa(binary);
 			} catch (err) {
 				throw new Error('Error fetching image: ' + (err as Error).message);
 			}
@@ -1009,7 +1058,7 @@ export class LoadBalancer extends DurableObject {
 
 			for (const key of keys) {
 				await this.ctx.storage.sql.exec('INSERT OR IGNORE INTO api_keys (api_key) VALUES (?)', key);
-				await this.ctx.storage.sql.exec('INSERT OR IGNORE INTO api_key_statuses (api_key) VALUES (?)', key);
+				await this.ctx.storage.sql.exec('INSERT OR IGNORE INTO api_key_statuses (api_key, cooldown_until) VALUES (?, 0)', key);
 			}
 
 			return new Response(JSON.stringify({ message: 'API密钥添加成功。' }), {
@@ -1087,7 +1136,7 @@ export class LoadBalancer extends DurableObject {
 			for (const result of checkResults) {
 				if (result.valid) {
 					await this.ctx.storage.sql.exec(
-						"UPDATE api_key_statuses SET status = 'normal', key_group = 'normal', failed_count = 0, last_checked_at = ? WHERE api_key = ?",
+						"UPDATE api_key_statuses SET status = 'normal', key_group = 'normal', failed_count = 0, last_checked_at = ?, cooldown_until = 0 WHERE api_key = ?",
 						Date.now(),
 						result.key
 					);
@@ -1170,6 +1219,65 @@ export class LoadBalancer extends DurableObject {
 		}
 
 		return null;
+	}
+
+	private async getBestApiKey(): Promise<string | null> {
+		try {
+			const now = Date.now();
+
+			// --- 日志诊断与强制修复 ---
+			// 1. 确保 statuses 表与 keys 表同步
+			await this.ctx.storage.sql.exec(`
+				INSERT OR IGNORE INTO api_key_statuses (api_key, status, key_group, cooldown_until)
+				SELECT api_key, 'normal', 'normal', 0 FROM api_keys
+			`);
+
+			const stats = await this.ctx.storage.sql
+				.exec("SELECT key_group, COUNT(*), SUM(CASE WHEN (cooldown_until IS NULL OR cooldown_until <= ?) THEN 1 ELSE 0 END) as available FROM api_key_statuses GROUP BY key_group", now)
+				.raw<any>();
+			console.log(`Key Stats: ${JSON.stringify(Array.from(stats))}`);
+			// ------------------
+
+			// 1. 尝试继续使用上次成功的 key
+			if (this.lastSuccessfulKey && this.currentKeyUsageCount < 2) {
+				const result = await this.ctx.storage.sql
+					.exec('SELECT api_key FROM api_key_statuses WHERE api_key = ? AND (cooldown_until IS NULL OR cooldown_until <= ?)', this.lastSuccessfulKey, now)
+					.raw<any>();
+				const rows = Array.from(result);
+				if (rows.length > 0) {
+					return this.lastSuccessfulKey;
+				}
+				this.lastSuccessfulKey = null;
+				this.currentKeyUsageCount = 0;
+			}
+
+			// 2. 尝试从 normal 组获取可用 key
+			let results = await this.ctx.storage.sql
+				.exec("SELECT api_key FROM api_key_statuses WHERE key_group = 'normal' AND (cooldown_until IS NULL OR cooldown_until <= ?) ORDER BY RANDOM() LIMIT 1", now)
+				.raw<any>();
+			let keys = Array.from(results);
+			if (keys && keys.length > 0) return keys[0][0] as string;
+
+			// 3. 尝试从 abnormal 组获取可用 key
+			results = await this.ctx.storage.sql
+				.exec("SELECT api_key FROM api_key_statuses WHERE key_group = 'abnormal' AND (cooldown_until IS NULL OR cooldown_until <= ?) ORDER BY RANDOM() LIMIT 1", now)
+				.raw<any>();
+			keys = Array.from(results);
+			if (keys && keys.length > 0) return keys[0][0] as string;
+
+			// 4. 【兜底方案】如果全都处于冷却中，强制取出一个冷却时间最接近结束的 Key
+			console.log("All keys are cooling down, picking the one that expires soonest.");
+			results = await this.ctx.storage.sql
+				.exec("SELECT api_key FROM api_key_statuses ORDER BY cooldown_until ASC LIMIT 1")
+				.raw<any>();
+			keys = Array.from(results);
+			if (keys && keys.length > 0) return keys[0][0] as string;
+
+			return null;
+		} catch (error) {
+			console.error('获取最佳API密钥失败:', error);
+			return null;
+		}
 	}
 
 	private async getRandomApiKey(): Promise<string | null> {
